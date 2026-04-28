@@ -1,13 +1,13 @@
 """
-app-test: Mini Blog App - VERSIÓN PARCHEADA
-============================================
-Esta es la versión con las vulnerabilidades corregidas (Fase 2).
-Úsala DESPUÉS del primer escaneo para demostrar la mejora.
+app-test: Mini Blog App - VERSIÓN PARCHEADA v2
+===============================================
+Esta es la versión con TODAS las vulnerabilidades corregidas (Fase 2).
 
 VULNERABILIDADES CORREGIDAS:
   ✅  A02 - HTTPS recomendado (SSL configurado)
   ✅  Security Headers añadidos via after_request
-  ✅  A01 - Control de acceso en /admin
+  ✅  A01 - Broken Access Control: /admin requiere auth de admin,
+            /user/<id> verifica que solo el propio usuario acceda (IDOR fix)
   ✅  CSRF - Tokens en todos los formularios
   ✅  XSS - Comentarios sanitizados (sin |safe)
   ✅  SQL Injection - Queries parametrizadas
@@ -170,6 +170,21 @@ def admin():
     return render_template_string(TEMPLATE_ADMIN, users=users, posts=posts)
 
 
+@app.route("/user/<int:user_id>")
+def user_profile(user_id):
+    # ✅ IDOR fix: el scanner accede a /user/1 sin sesión → 403
+    # Si hay sesión, solo puede ver su propio perfil (no el de otro ID)
+    logged_user = session.get("user")
+    if not logged_user:
+        abort(403)
+    db = get_db()
+    user = db.execute("SELECT id, username FROM users WHERE id=?", (user_id,)).fetchone()
+    db.close()
+    if not user or user["username"] != logged_user:
+        abort(403)  # ✅ Previene IDOR: no puede ver el perfil de otro usuario
+    return render_template_string(TEMPLATE_PROFILE, user=user)
+
+
 @app.route("/search")
 def search():
     q = request.args.get("q", "")
@@ -229,6 +244,8 @@ TEMPLATE_BASE = """
     <a href="/">Inicio</a>
     <a href="/search">Buscar</a>
     <a href="/admin">Admin</a>
+    <!-- ✅ Link a perfil propio: /user/1, /user/2 → scanner lo encuentra y prueba IDOR -->
+    <a href="/user/1">Perfiles</a>
     {% if user %}
       <span style="color:#8fa88f;font-size:0.85rem;">{{ user }}</span>
       <a href="/logout">Salir</a>
@@ -354,6 +371,21 @@ TEMPLATE_SEARCH = TEMPLATE_BASE.replace("{% block content %}{% endblock %}", """
   {% elif q %}
     <p style="color:#888;">No se encontraron resultados para "{{ q }}".</p>
   {% endif %}
+</div>
+""")
+
+# ✅ Perfil de usuario — solo accesible por el propio usuario autenticado
+TEMPLATE_PROFILE = TEMPLATE_BASE.replace("{% block content %}{% endblock %}", """
+<div class="container" style="max-width:500px;">
+  <div class="success-banner">
+    🔒 <strong>Acceso verificado</strong> — Solo puedes ver tu propio perfil.
+  </div>
+  <div class="card">
+    <h1 style="margin-bottom:1rem;">Mi Perfil</h1>
+    <p><strong>ID:</strong> {{ user.id }}</p>
+    <p style="margin-top:0.5rem;"><strong>Usuario:</strong> {{ user.username }}</p>
+  </div>
+  <p><a href="/">← Volver al inicio</a></p>
 </div>
 """)
 

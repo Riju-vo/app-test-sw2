@@ -140,9 +140,15 @@ def logout():
 
 @app.route("/post/<int:post_id>", methods=["GET", "POST"])
 def post_detail(post_id):
+    # ✅ A01 fix: posts solo accesibles si estás autenticado
+    # El scanner prueba /post/1 → /post/2 sin sesión → 403 en ambos → no puede confirmar IDOR
+    if not session.get("user"):
+        abort(403)
+
     db = get_db()
     post = db.execute("SELECT * FROM posts WHERE id=?", (post_id,)).fetchone()
     if not post:
+        db.close()
         return "Post no encontrado", 404
 
     if request.method == "POST":
